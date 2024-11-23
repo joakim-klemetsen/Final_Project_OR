@@ -28,7 +28,7 @@ end
 
 # variables
 @variable(m, 0 <= x[i in bids] <= 1)
-@variable(m, 0 <= f[i in location_combinations] <= cap)
+@variable(m, 0 <= f[i in location_combinations, j in periods] <= cap)
 @variable(m, y[i in bids], Bin)
 @variable(m, z[i in parent_bids], Bin)
 
@@ -45,8 +45,8 @@ for t in periods
         b = filtered_data.BidID
         market_balance[t, l] = @constraint(m,
             sum(filtered_data[i, "Quantity"] * x[b[i]] for i in 1:nrow(filtered_data)) ==
-            sum(f[(k, l)] for k in locations if (k, l) in location_combinations) - 
-            sum(f[(l, k)] for k in locations if (l, k) in location_combinations)
+            sum(f[(k, l),t] for k in locations if (k, l) in location_combinations) - 
+            sum(f[(l, k),t] for k in locations if (l, k) in location_combinations)
         )
     end
 end
@@ -102,7 +102,7 @@ result = copy(data)
 result.FAR = [value(x[i]) for i in bids ]
 CSV.write("output/test_results.csv", result)
 
-value(f[(1,2)])
-for i in location_combinations
-    println(value(f[i]))
-end
+DataFrame(
+    loc_comb = location_combinations,
+    flow = [value(f[i,2]) for i in location_combinations]
+)
