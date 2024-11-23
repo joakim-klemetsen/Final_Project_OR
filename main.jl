@@ -6,6 +6,7 @@ data = CSV.read("data/ModifiedProjectData.csv", DataFrame)
 
 # initilize model
 m = Model(HiGHS.Optimizer)
+set_silent(m)
 
 # sets
 bids = 1:nrow(data)
@@ -20,27 +21,30 @@ M = Dict()
 for i in parent_bids 
    M[i] = nrow(data[data.ParentBidID .== i,:])
 end
-
-nrow(data[data.ParentBidID .== 1,:])
+FC = Dict()
+for i in parent_bids
+    FC[i] = data[(data.ParentBidID .== i),"FC"][1]
+end
 
 # variables
 @variable(m, 0 <= x[i in bids] <= 1)
-@variable(m, 0 <= f[i in pipelines] <= cap)
+@variable(m, 0 <= f[i in location_combinations] <= cap)
 @variable(m, y[i in bids], Bin)
 @variable(m, z[i in parent_bids], Bin)
 
 # objective
-@objective(m, Max, sum(data[i,"Quantity"]*data[i,"Price"]*x[i] for i in bids) - sum(data[j,"FC"]*z[j] for j in parent_bids))
+@objective(m, Max, sum(data[i,"Quantity"]*data[i,"Price"]*x[i] for i in bids) - sum(FC[j]*z[j] for j in parent_bids))
 
 # constraints
 
 ## - 1. market balance ----
-market_balance = Dict() 
+market_balance = Dict()
 for t in periods
     for l in locations
-        filtered_data = data[data.Period .== t .& data.Location .== l, :]
-        market_balance[l] = @constraint(m,
-            sum(row.Quantity * x[row.BidID] for row in eachrow(filtered_data)) ==
+        filtered_data = data[(data.Period .== t) .& (data.Location .== l), :]
+        b = filtered_data.BidID
+        market_balance[t, l] = @constraint(m,
+            sum(filtered_data[i, "Price"] * filtered_data[i, "Quantity"] * x[b[i]] for i in 1:nrow(filtered_data)) ==
             sum(f[(k, l)] for k in locations if (k, l) in location_combinations) - 
             sum(f[(l, k)] for k in locations if (l, k) in location_combinations)
         )
@@ -62,13 +66,29 @@ end
 ## - 3. fixed cost link ----
 
 ### upper bound: becomes active when \sum(y_i) > 0 and forces z_l = 1
-for l in locations
-    @constraint(m, sum(y[i] for i in bids) <= M[l]*z[l])
+for l in parent_bids
+    filtered_data = data[(data.ParentBidID .== l),:]
+    b = filtered_data.BidID
+    @constraint(m, sum(y[b[i]] for i in 1:nrow(filtered_data)) <= M[l]*z[l])
 end
 
 ### lower bound: becomes active when \sum(y_i) = 0 and forces z_l = 0
-for l in locations
-    @constraint(m, sum(y[i] for i in bids) >= z[l])
+for l in parent_bids
+    filtered_data = data[(data.ParentBidID .== l),:]
+    b = filtered_data.BidID
+    @constraint(m, sum(y[b[i]] for i in 1:nrow(filtered_data)) >= z[l])
 end
 
+# solve model
+optimize!(m)
 
+objective_value(m)
+for i in bids
+    println(value(x[i]))    
+end
+for i in bids
+    println(value(y[i]))    
+end
+for i in parent_bids
+    println(value(z[i]))
+end
