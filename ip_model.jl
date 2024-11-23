@@ -72,6 +72,11 @@ fix_z = Dict()
 for i in parent_bids 
    fix_y[i] = @constraint(m_ip, z[i] == z_fixed[i]) 
 end
+
 # solve model
 optimize!(m_ip)
 
+objective_value(m_ip)
+dual(market_balance[1,1])
+dual(fix_z[1])
+fix_z[2]
