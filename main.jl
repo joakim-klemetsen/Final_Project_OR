@@ -44,7 +44,7 @@ for t in periods
         filtered_data = data[(data.Period .== t) .& (data.Location .== l), :]
         b = filtered_data.BidID
         market_balance[t, l] = @constraint(m,
-            sum(filtered_data[i, "Price"] * filtered_data[i, "Quantity"] * x[b[i]] for i in 1:nrow(filtered_data)) ==
+            sum(filtered_data[i, "Quantity"] * x[b[i]] for i in 1:nrow(filtered_data)) ==
             sum(f[(k, l)] for k in locations if (k, l) in location_combinations) - 
             sum(f[(l, k)] for k in locations if (l, k) in location_combinations)
         )
@@ -54,29 +54,33 @@ end
 ## - 2. minimum acceptance ratio fulfillment ----
 
 ### link between acceptance ratio and binary variable
+ar_link_cond = Dict()
 for i in bids 
-    @constraint(m, x[i] <= y[i])
+    ar_link_cond[i] = @constraint(m, x[i] <= y[i])
 end
 
 ### ensures that acceptance ratio atleast meets the min. acc. requirement
+ar_geq_cond = Dict()
 for i in bids
-    @constraint(m, x[i] >= data[i,"AR"]*y[i])    
+    ar_geq_cond[i] = @constraint(m, x[i] >= data[i,"AR"]*y[i])    
 end
 
 ## - 3. fixed cost link ----
 
 ### upper bound: becomes active when \sum(y_i) > 0 and forces z_l = 1
+fc_upper = Dict()
 for l in parent_bids
     filtered_data = data[(data.ParentBidID .== l),:]
     b = filtered_data.BidID
-    @constraint(m, sum(y[b[i]] for i in 1:nrow(filtered_data)) <= M[l]*z[l])
+    fc_upper[l] = @constraint(m, sum(y[b[i]] for i in 1:nrow(filtered_data)) <= M[l]*z[l])
 end
 
 ### lower bound: becomes active when \sum(y_i) = 0 and forces z_l = 0
+fc_lower = Dict()
 for l in parent_bids
     filtered_data = data[(data.ParentBidID .== l),:]
     b = filtered_data.BidID
-    @constraint(m, sum(y[b[i]] for i in 1:nrow(filtered_data)) >= z[l])
+    fc_lower[l] = @constraint(m, sum(y[b[i]] for i in 1:nrow(filtered_data)) >= z[l])
 end
 
 # solve model
