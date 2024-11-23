@@ -9,7 +9,7 @@ m = Model(HiGHS.Optimizer)
 set_silent(m)
 
 # sets
-bids = 1:nrow(data)
+bids = unique(data.BidID)
 parent_bids = unique(data.ParentBidID)
 locations = unique(data.Location)
 location_combinations = [(l, k) for l in locations, k in locations if l != k]
@@ -106,3 +106,13 @@ DataFrame(
     loc_comb = location_combinations,
     flow = [value(f[i,2]) for i in location_combinations]
 )
+
+# extract binary variable outputs to be used in IP Pricing case
+y_fixed = [value(y[i]) for i in bids]
+z_fixed = [value(z[j]) for j in parent_bids]
+
+test = copy(data)
+test.x = [value(x[i]) for i in bids]
+test.y_fixed = [value(y[i]) for i in bids]
+test[!, :z_fixed] = [value(z[parent_bid]) for parent_bid in test[!, :ParentBidID]]
+CSV.write("output/test_fixed_bin.csv", test)
