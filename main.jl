@@ -96,3 +96,13 @@ end
 for i in parent_bids
     println(value(z[i]))
 end
+
+# explore results
+result = copy(data)
+result.FAR = [value(x[i]) for i in bids ]
+CSV.write("output/test_results.csv", result)
+
+value(f[(1,2)])
+for i in location_combinations
+    println(value(f[i]))
+end
