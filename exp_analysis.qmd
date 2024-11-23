@@ -1,0 +1,100 @@
+---
+title: "Exploratory Analysis"
+format: html
+editor: visual
+---
+# Load data 
+```{r}
+# load packages
+library(tidyverse)
+
+# load data
+raw <- read.delim("data/ProjectData_corr.csv", sep = ";")
+
+# check if data is loaded correctly
+sapply(raw, function(x) class(x))
+
+# function fixing issues with thousand separator in data entry
+number_fix <- function(variable) {
+  result <- numeric(length(variable)) 
+  for (i in seq_along(variable)) {
+    split <- str_split(variable[i], "\\.", simplify = TRUE) %>% as.data.frame()
+    if (ncol(split) > 2) {
+      result[i] <- 1e3 * as.numeric(split[1]) + as.numeric(split[2]) + (1 / 1e3) * as.numeric(split[3])
+    } else if (ncol(split) == 2) {
+      result[i] <- as.numeric(split[1]) + (1 / 1e3) * as.numeric(split[2])
+    } else {
+      result[i] <- as.numeric(split[1])
+    }
+  }
+  return(result)
+}
+
+# apply the number_fix to "Price" as it is the problematic variable
+Price_fixed <- sapply(raw$Price, function(x) number_fix(x))
+
+# validate output of function
+class(Price_fixed)
+summary(Price_fixed)
+
+# update data with correct formatting
+data <- raw %>% 
+  mutate(Price = as.numeric(Price_fixed))
+
+# write the modified data frame to a new CSV file
+write.csv(data, "data/ModifiedProjectData.csv", row.names = FALSE)
+```
+
+# Summary of data 
+```{r}
+# divide variables in indicators and numerical variables    
+int <- names(data)[sapply(data, function(x) class(x) == "integer")]
+num <- names(data)[!names(data) %in% int]
+
+# give summary statistics on the numerical variables
+lapply(c("<=", ">"), function(condition){
+  sapply(data[names(data) %in% num] %>% 
+         filter(if (condition == "<=") Quantity <= 0 else Quantity > 0), 
+       function(x) summary(x))
+})
+
+# provide insight on the levels of the indicator variables 
+data %>%
+  select(all_of(int)) %>%
+  summarise(across(everything(), ~n_distinct(.)))
+```
+
+# Plots
+```{r}
+# define data for analysis for period and location 1  
+test_data <- data %>% 
+  filter(Period == 1, Location == 1) %>% 
+  select(-c(Period,Location))
+
+# split test data in supply and demand data frames
+supply_data_test <- test_data %>% 
+  filter(Quantity < 0) 
+
+demand_data_test <- test_data %>% 
+  filter(Quantity >= 0)
+
+# define data for equilibrium plots
+supply_plot_data <- supply_data_test %>% 
+  mutate(Quantity = abs(Quantity)) %>% 
+  arrange(Price) %>% 
+  mutate(Quantity = cumsum(Quantity))
+
+demand_plot_data <- demand_data_test %>% 
+  arrange(desc(Price)) %>% 
+  mutate(Quantity = cumsum(Quantity))
+
+# make plot
+ggplot() +
+  geom_line(data = supply_plot_data, 
+            mapping = aes(x = Quantity, y = Price),
+            col = "red") +
+  geom_line(data = demand_plot_data, 
+            mapping = aes(x = Quantity, y = Price),
+            col = "blue")
+```
+
