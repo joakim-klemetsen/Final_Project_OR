@@ -86,33 +86,15 @@ end
 # solve model
 optimize!(m)
 
-objective_value(m)
-for i in bids
-    println(value(x[i]))    
-end
-for i in bids
-    println(value(y[i]))    
-end
-for i in parent_bids
-    println(value(z[i]))
-end
-
-# explore results
-result = copy(data)
-result.FAR = [value(x[i]) for i in bids ]
-CSV.write("output/test_results.csv", result)
-
-DataFrame(
-    loc_comb = location_combinations,
-    flow = [value(f[i,2]) for i in location_combinations]
+# Output optimal binary variables that
+y_fixed = DataFrame(BidID = data.BidID,
+                    Y = [value(y[i]) for i in bids]
 )
 
-# extract binary variable outputs to be used in IP Pricing case
-y_fixed = [value(y[i]) for i in bids]
-z_fixed = [value(z[j]) for j in parent_bids]
+CSV.write("output/base_model_y_output.csv",y_fixed)
 
-test = copy(data)
-test.x = [value(x[i]) for i in bids]
-test.y_fixed = [value(y[i]) for i in bids]
-test[!, :z_fixed] = [value(z[parent_bid]) for parent_bid in test[!, :ParentBidID]]
-CSV.write("output/test_fixed_bin.csv", test)
+z_fixed = DataFrame(ParentBidID = parent_bids,
+                    Z = [value(z[i]) for i in parent_bids]
+)
+
+CSV.write("output/base_model_z_output.csv",z_fixed)
