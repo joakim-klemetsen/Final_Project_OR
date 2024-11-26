@@ -15,10 +15,8 @@ set_silent(ip_model)
 # variables
 @variable(ip_model, 0 <= x[i in bids] <= 1)
 @variable(ip_model, 0 <= f[i in location_combinations, j in periods] <= cap)
-
-# fix binary variables
-@variable(ip_model, y[i in bids] == Y[i,"Y"])
-@variable(ip_model, z[i in parent_bids] == Z[i,"Z"])
+@variable(ip_model, y[i in bids])
+@variable(ip_model, z[i in parent_bids])
 
 # objective 
 @objective(ip_model, Max, sum(data[i, "Quantity"] * data[i, "Price"] * x[i] for i in bids) - sum(FC[j] * z[j] for j in parent_bids))
@@ -37,8 +35,22 @@ for t in periods
     end
 end
 
+# fix binary variables
+fix_y = Dict()
+for i in bids
+    fix_y[i] = @constraint(ip_model, y[i] == Y[i,"Y"])    
+end
+
+fix_z = Dict()
+for i in parent_bids
+    fix_z[i] = @constraint(ip_model, z[i] == Z[i,"Z"])    
+end
+
 # solve model
 optimize!(ip_model)
 
-
-
+# output dual values for z
+CSV.write("output/dual_fixed_z_ip.csv",DataFrame(ParentBidID = parent_bids, 
+                                                 Z = [Z[i,"Z"] for i in parent_bids],
+                                                 Dual = [dual(fix_z[i]) for i in parent_bids])
+)
