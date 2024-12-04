@@ -98,3 +98,7 @@ z_fixed = DataFrame(ParentBidID = parent_bids,
 )
 
 CSV.write("output/base_model_z_output.csv",z_fixed)
+
+CSV.write("output/base_model_output.csv", DataFrame(BidID = data.BidID,
+                                                    X = [value(x[i]) for i in bids],
+                                                    Y = [value(y[i]) for i in bids]))
