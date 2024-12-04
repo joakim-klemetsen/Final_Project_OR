@@ -15,8 +15,8 @@ set_silent(ip_model)
 # variables
 @variable(ip_model, 0 <= x[i in bids] <= 1)
 @variable(ip_model, 0 <= f[i in location_combinations, j in periods] <= cap)
-@variable(ip_model, y[i in bids], Bin)
-@variable(ip_model, z[i in parent_bids], Bin)
+@variable(ip_model, y[i in bids])
+@variable(ip_model, z[i in parent_bids])
 
 # objective 
 @objective(ip_model, Max, sum(data[i, "Quantity"] * data[i, "Price"] * x[i] for i in bids) - sum(FC[j] * z[j] for j in parent_bids))
@@ -33,6 +33,20 @@ for t in periods
             sum(f[(l, k), t] for k in locations if (l, k) in location_combinations)
         )
     end
+end
+
+## - 2. minimum acceptance ratio fulfillment ----
+
+### link between acceptance ratio and binary variable
+ar_link_cond = Dict()
+for i in bids 
+    ar_link_cond[i] = @constraint(ip_model, x[i] <= y[i])
+end
+
+### ensures that acceptance ratio atleast meets the min. acc. requirement
+ar_geq_cond = Dict()
+for i in bids
+    ar_geq_cond[i] = @constraint(ip_model, x[i] >= data[i,"AR"]*y[i])    
 end
 
 # fix binary variables
@@ -72,3 +86,4 @@ CSV.write("output/ip_model_output.csv", data_with_solutions)
 
 # Write the updated data to a CSV file
 #CSV.write("output/extended_base_model_output.csv", data_with_solutions)
+dual(market_balance_ip[6,4])
