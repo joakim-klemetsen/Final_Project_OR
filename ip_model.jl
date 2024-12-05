@@ -63,6 +63,20 @@ end
 # solve model
 optimize!(ip_model)
 
+# output results
+test = copy(data)
+test.x_solution = [value(x[i]) for i in bids]
+test.y_solution = [value(y[i]) for i in bids]
+z_solution_map = Dict(j => value(z[j]) for j in parent_bids)
+test[!, "z_solution"] = [z_solution_map[test[i, "ParentBidID"]] for i in 1:nrow(test)]
+dual_market_balance = Dict((t, l) => (-1)*dual(market_balance_ip[t, l]) for t in periods for l in locations)
+test[!, "pi_star"] = [
+    dual_market_balance[(test[i, "Period"], test[i, "Location"])] for i in 1:nrow(test)
+]
+dual_z_fix = Dict(j => (-1)*dual(fix_z[j]) for j in parent_bids)
+test[!, "delta_star"] = [dual_z_fix[test[i, "ParentBidID"]] for i in 1:nrow(test)]
+CSV.write("output/ip_model_interim_output.csv", test)
+dual(fix_y[396])
 # output dual values for z
 CSV.write("output/dual_fixed_z_ip.csv",DataFrame(ParentBidID = parent_bids, 
                                                  Z = [Z[i,"Z"] for i in parent_bids],
@@ -79,11 +93,8 @@ CSV.write("output/ip_model_output.csv", data_with_solutions)
 #data_with_solutions[!, "z_solution"] = [z_solution_map[data[i, "ParentBidID"]] for i in 1:nrow(data)]
 
 # Add dual values of the market_balance constraint
-#dual_market_balance = Dict((t, l) => dual(market_balance[t, l]) for t in periods for l in locations)
-#data_with_solutions[!, "dual_market_balance"] = [
-#    dual_market_balance[(data[i, "Period"], data[i, "Location"])] for i in 1:nrow(data)
-#]
+
 
 # Write the updated data to a CSV file
 #CSV.write("output/extended_base_model_output.csv", data_with_solutions)
-dual(market_balance_ip[6,4])
+dual(market_balance_ip[20,4])
