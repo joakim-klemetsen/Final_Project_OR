@@ -46,7 +46,7 @@ end
 ### ensures that acceptance ratio atleast meets the min. acc. requirement
 ar_geq_cond = Dict()
 for i in bids
-    ar_geq_cond[i] = @constraint(ip_model, x[i] >= data[i,"AR"]*y[i])    
+    ar_geq_cond[i] = @constraint(ip_model, x[i] >= (data[i,"AR"]+epsilon)*y[i])    
 end
 
 # fix binary variables

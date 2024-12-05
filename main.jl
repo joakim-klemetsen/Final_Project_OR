@@ -25,6 +25,7 @@ FC = Dict()
 for i in parent_bids
     FC[i] = data[(data.ParentBidID .== i),"FC"][1]
 end
+epsilon = 1e-5
 
 # variables
 @variable(m, 0 <= x[i in bids] <= 1)
@@ -62,7 +63,7 @@ end
 ### ensures that acceptance ratio atleast meets the min. acc. requirement
 ar_geq_cond = Dict()
 for i in bids
-    ar_geq_cond[i] = @constraint(m, x[i] >= data[i,"AR"]*y[i])    
+    ar_geq_cond[i] = @constraint(m, x[i] >= (data[i,"AR"]+epsilon)*y[i])    
 end
 
 ## - 3. fixed cost link ----
