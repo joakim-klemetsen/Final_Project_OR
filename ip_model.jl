@@ -73,10 +73,12 @@ dual_market_balance = Dict((t, l) => (-1)*dual(market_balance_ip[t, l]) for t in
 test[!, "pi_star"] = [
     dual_market_balance[(test[i, "Period"], test[i, "Location"])] for i in 1:nrow(test)
 ]
-dual_z_fix = Dict(j => (-1)*dual(fix_z[j]) for j in parent_bids)
-test[!, "delta_star"] = [dual_z_fix[test[i, "ParentBidID"]] for i in 1:nrow(test)]
+#dual_z_fix = Dict(j => (-1)*dual(fix_z[j]) for j in parent_bids)
+#test[!, "delta_star"] = [dual_z_fix[test[i, "ParentBidID"]] for i in 1:nrow(test)]
+test.uplift = [max(0, (test[i,"Price"]-test[i,"pi_star"])*abs(test[i,"Quantity"])*test[i,"x_solution"]) for i in 1:nrow(test)]
 CSV.write("output/ip_model_interim_output.csv", test)
-dual(fix_y[396])
+
+
 # output dual values for z
 CSV.write("output/dual_fixed_z_ip.csv",DataFrame(ParentBidID = parent_bids, 
                                                  Z = [Z[i,"Z"] for i in parent_bids],
