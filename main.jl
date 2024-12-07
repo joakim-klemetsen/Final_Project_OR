@@ -17,14 +17,8 @@ periods = unique(data.Period)
 
 # parameters
 cap = 300
-M = Dict()
-for i in parent_bids 
-   M[i] = nrow(data[data.ParentBidID .== i,:])
-end
-FC = Dict()
-for i in parent_bids
-    FC[i] = data[(data.ParentBidID .== i),"FC"][1]
-end
+M = Dict(parent_bids .=> [nrow(data[data.ParentBidID .== i, :]) for i in parent_bids])
+FC = Dict(parent_bids .=> [data[data.ParentBidID .== i, "FC"][1] for i in parent_bids])
 epsilon = 1e-5
 
 # variables
