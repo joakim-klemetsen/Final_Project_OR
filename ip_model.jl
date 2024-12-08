@@ -21,7 +21,9 @@ set_silent(ip_model)
 # objective 
 @objective(ip_model, Max, sum(data[i, "Quantity"] * data[i, "Price"] * x[i] for i in bids) - sum(FC[j] * z[j] for j in parent_bids))
 
-# market balance constraints
+# constraints
+
+## - 1. market balance constraints ----
 market_balance_ip = Dict()
 for t in periods
     for l in locations
@@ -49,12 +51,15 @@ for i in bids
     ar_geq_cond[i] = @constraint(ip_model, x[i] >= (data[i,"AR"]+epsilon)*y[i])    
 end
 
-# fix binary variables
+## - 3. fix binary variables ----
+
+### ensures that y is fixed to the optimal value of y in the base model
 fix_y = Dict()
 for i in bids
     fix_y[i] = @constraint(ip_model, y[i] == Y[i,"Y"])    
 end
 
+### ensures that z is fixed to the optimal value of z in the base model
 fix_z = Dict()
 for i in parent_bids
     fix_z[i] = @constraint(ip_model, z[i] == Z[i,"Z"])    
