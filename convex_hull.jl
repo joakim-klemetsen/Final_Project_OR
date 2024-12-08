@@ -11,7 +11,7 @@ set_silent(ch_model)
 # variables
 @variable(ch_model, 0 <= x[i in bids] <= 1)          
 @variable(ch_model, 0 <= f[i in location_combinations, j in periods] <= cap)  
-@variable(ch_model, 0 <= alpha[i in bids] <= 1)      
+@variable(ch_model, alpha[i in bids])      
 @variable(ch_model, beta[i in parent_bids])             
 
 # objective
@@ -37,29 +37,10 @@ for t in periods
 end
 
 ## - 2. convex hull constraints ----
-convex_hull_constraints_1 = Dict()
-convex_hull_constraints_2 = Dict()
 for i in bids
-    parent = data[data.BidID .== i, "ParentBidID"][1]
-
-    ### ensures that alpha sets an upper limit to x for each i 
-    convex_hull_constraints_1[i] = @constraint(ch_model, x[i] <= alpha[i])
-    convex_hull_constraints_2[i] = @constraint(ch_model, x[i] >= (data[i,"AR"]+epsilon)*alpha[i])    
-    
-    ### ensures that alpha is > 0 if and only if beta > 0 for each bid i
-    @constraint(ch_model, alpha[i] <= beta[parent])
-end
-
-## - 3. fixed cost link constraints ----
-fixed_cost_constraints = Dict()
-for l in parent_bids
-    filtered_data = data[data.ParentBidID .== l, :]
-    b = filtered_data.BidID
-
-    ### ensures that beta > 0 if and only if at least one child alpha is > 0  
-    fixed_cost_constraints[l] = @constraint(ch_model,
-        sum(alpha[b[i]] for i in 1:nrow(filtered_data)) >= beta[l]
-    )
+    @constraint(ch_model, x[i] <= alpha[i])
+    @constraint(ch_model, (data[i,"AR"]+epsilon)*alpha[i] <= x[i])
+    @constraint(ch_model, alpha[i] <= beta[data[data.BidID .== i,"ParentBidID"][1]])
 end
 
 # solve model
