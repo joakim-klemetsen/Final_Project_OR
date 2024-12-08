@@ -85,7 +85,7 @@ for (loc, period) in [(l, p) for l in locations, p in periods]
     # Fill in the result DataFrame
     result[index, :Location] = loc
     result[index, :Period] = period
-    result[index, :Price] = (-1) * dual(market_balance_ip[period, loc])
+    result[index, :Price] = (-1) * dual(market_balance_ch[period, loc])
     
     # Calculate Demand
     positive_quantity_bids = filtered_data[filtered_data.Quantity .>= 0, :]
@@ -116,4 +116,4 @@ for (loc, period) in [(l, p) for l in locations, p in periods]
         index += 1    
 end
 result.Netflow = [((result[i,"Demand"] + result[i,"Supply"])) for i in 1:nrow(result)]
-CSV.write("output/result_flow_output_ip.csv", result)
+CSV.write("output/result_flow_output_ch.csv", result)
