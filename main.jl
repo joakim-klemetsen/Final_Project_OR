@@ -86,15 +86,15 @@ y_fixed = DataFrame(BidID = data.BidID,
                     Y = [value(y[i]) for i in bids]
 )
 
-CSV.write("output/base_model_y_output.csv",y_fixed)
+CSV.write("output/base_model/base_model_y_output.csv",y_fixed)
 
 z_fixed = DataFrame(ParentBidID = parent_bids,
                     Z = [value(z[i]) for i in parent_bids]
 )
 
-CSV.write("output/base_model_z_output.csv",z_fixed)
+CSV.write("output/base_model/base_model_z_output.csv",z_fixed)
 
-CSV.write("output/base_model_output.csv", DataFrame(BidID = data.BidID,
+CSV.write("output/base_model/base_model_output.csv", DataFrame(BidID = data.BidID,
                                                     X = [value(x[i]) for i in bids],
                                                     Y = [value(y[i]) for i in bids]))
 
@@ -105,4 +105,58 @@ test.y_solution = [value(y[i]) for i in bids]
 z_solution_map = Dict(j => value(z[j]) for j in parent_bids)
 test[!, "z_solution"] = [z_solution_map[test[i, "ParentBidID"]] for i in 1:nrow(test)]
 test.cleared_volume = [test[i,"Quantity"]*test[i,"x_solution"] for i in 1:nrow(test)]
-CSV.write("output/base_model_interim_output.csv",test)
+CSV.write("output/base_model/base_model_interim_output.csv",test)
+
+# output flows
+result = DataFrame(Location = zeros(Int, length(periods)*length(locations)),
+                   Period = zeros(Int, length(periods)*length(locations)),
+                   Price = zeros(Float64, length(periods)*length(locations)),
+                   Demand = zeros(Float64, length(periods)*length(locations)),
+                   Supply = zeros(Float64, length(periods)*length(locations)),
+                   Netflow = zeros(Float64, length(periods)*length(locations)),
+                   f_to_1 = zeros(Float64, length(periods)*length(locations)),
+                   f_to_2 = zeros(Float64, length(periods)*length(locations)),
+                   f_to_3 = zeros(Float64, length(periods)*length(locations)),
+                   f_to_4 = zeros(Float64, length(periods)*length(locations)),
+)
+
+index = 1
+for (loc, period) in [(l, p) for l in locations, p in periods]
+    # Filter data for the current location and period
+    filtered_data = data[(data.Location .== loc) .& (data.Period .== period), :]
+    
+    # Fill in the result DataFrame
+    result[index, :Location] = loc
+    result[index, :Period] = period
+    result[index, :Price] = (-1) * dual(market_balance[period, loc])
+    
+    # Calculate Demand
+    positive_quantity_bids = filtered_data[filtered_data.Quantity .>= 0, :]
+    result[index, :Demand] = sum(
+        [positive_quantity_bids[i, "Quantity"] * value(x[positive_quantity_bids[i, "BidID"]]) 
+         for i in 1:nrow(positive_quantity_bids)]
+    )
+    
+    # Calculate Supply
+    negative_quantity_bids = filtered_data[filtered_data.Quantity .< 0, :]
+    result[index, :Supply] = sum(
+        [negative_quantity_bids[i, "Quantity"] * value(x[negative_quantity_bids[i, "BidID"]]) 
+         for i in 1:nrow(negative_quantity_bids)]
+    ) 
+
+    # Fill in flows
+        # Fill in the flow columns
+        for to_loc in 1:4  # Assuming 4 locations numbered 1 to 4
+            if loc != to_loc
+                # Flow is defined
+                result[index, Symbol("f_to_$(to_loc)")] = value(f[(loc, to_loc), period])
+            else
+                # Flow is undefined (same location)
+                result[index, Symbol("f_to_$(to_loc)")] = 0
+            end
+        end
+        
+        index += 1    
+end
+result.Netflow = [((result[i,"Demand"] + result[i,"Supply"])) for i in 1:nrow(result)]
+CSV.write("output/base_model/result_flow_output_bm.csv", result)

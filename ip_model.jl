@@ -5,8 +5,8 @@
 # ------------------------------
 
 # load base model output
-Y = CSV.read("output/base_model_y_output.csv", DataFrame)
-Z = CSV.read("output/base_model_z_output.csv", DataFrame)
+Y = CSV.read("output/base_model/base_model_y_output.csv", DataFrame)
+Z = CSV.read("output/base_model/base_model_z_output.csv", DataFrame)
 
 # initialize ip pricing model
 ip_model = Model(HiGHS.Optimizer)
@@ -84,7 +84,7 @@ dual_y_fix = Dict(i => (-1)*dual(fix_y[i]) for i in bids)
 test[!, "delta_star"] = [dual_y_fix[test[i, "BidID"]] for i in 1:nrow(test)]
 test.payment =[test[i,"pi_star"]*abs(test[i,"Quantity"])*test[i,"x_solution"]-test[i,"delta_star"]*test[i,"y_solution"] for i in 1:nrow(test)]
 test.surplus = [abs(test[i,"Price"]-test[i,"pi_star"])*abs(test[i,"Quantity"])*test[i,"x_solution"] for i in 1:nrow(test)]
-CSV.write("output/ip_model_interim_output.csv", test)
+CSV.write("output/ip_model/ip_model_interim_output.csv", test)
 
 # output flows
 result = DataFrame(Location = zeros(Int, length(periods)*length(locations)),
@@ -138,4 +138,4 @@ for (loc, period) in [(l, p) for l in locations, p in periods]
         index += 1    
 end
 result.Netflow = [((result[i,"Demand"] + result[i,"Supply"])) for i in 1:nrow(result)]
-CSV.write("output/result_flow_output_ip.csv", result)
+CSV.write("output/ip_model/result_flow_output_ip.csv", result)

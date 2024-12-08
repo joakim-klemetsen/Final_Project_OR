@@ -37,10 +37,11 @@ for t in periods
 end
 
 ## - 2. convex hull constraints ----
+ch_constraints = Dict() 
 for i in bids
     @constraint(ch_model, x[i] <= alpha[i])
     @constraint(ch_model, (data[i,"AR"]+epsilon)*alpha[i] <= x[i])
-    @constraint(ch_model, alpha[i] <= beta[data[data.BidID .== i,"ParentBidID"][1]])
+    ch_constraints[i] = @constraint(ch_model, alpha[i] <= beta[data[data.BidID .== i,"ParentBidID"][1]])
 end
 
 # solve model
@@ -54,15 +55,15 @@ test.y_solution = [value(alpha[i]) for i in bids]
 test.cleared_volume = [test[i,"Quantity"]*test[i,"x_solution"] for i in 1:nrow(test)]
 z_solution_map = Dict(j => value(beta[j]) for j in parent_bids)
 test[!, "z_solution"] = [z_solution_map[test[i, "ParentBidID"]] for i in 1:nrow(test)]
-dual_market_balance = Dict((t, l) => (-1)*dual(market_balance_ch[t, l]) for t in periods for l in locations)
-test[!, "pi_star"] = [
-    dual_market_balance[(test[i, "Period"], test[i, "Location"])] for i in 1:nrow(test)
-]
-dual_y_fix = Dict(i => (-1)*dual(fix_y[i]) for i in bids)
+#dual_market_balance = Dict((t, l) => (-1)*dual(market_balance_ch[t, l]) for t in periods for l in locations)
+#test[!, "pi_star"] = [
+#    dual_market_balance[(test[i, "Period"], test[i, "Location"])] for i in 1:nrow(test)
+#]
+dual_y_fix = Dict(i => (-1)*dual(ch_constraints[i]) for i in bids)
 test[!, "delta_star"] = [dual_y_fix[test[i, "BidID"]] for i in 1:nrow(test)]
-test.payment =[test[i,"pi_star"]*abs(test[i,"Quantity"])*test[i,"x_solution"]-test[i,"delta_star"]*test[i,"y_solution"] for i in 1:nrow(test)]
-test.surplus = [abs(test[i,"Price"]-test[i,"pi_star"])*abs(test[i,"Quantity"])*test[i,"x_solution"] for i in 1:nrow(test)]
-CSV.write("output/ch_model_interim_output.csv", test)
+#test.payment =[test[i,"pi_star"]*abs(test[i,"Quantity"])*test[i,"x_solution"]-test[i,"delta_star"]*test[i,"y_solution"] for i in 1:nrow(test)]
+#test.surplus = [abs(test[i,"Price"]-test[i,"pi_star"])*abs(test[i,"Quantity"])*test[i,"x_solution"] for i in 1:nrow(test)]
+CSV.write("output/ch_model/ch_model_interim_output.csv", test)
 
 # output flows
 result = DataFrame(Location = zeros(Int, length(periods)*length(locations)),
@@ -116,4 +117,4 @@ for (loc, period) in [(l, p) for l in locations, p in periods]
         index += 1    
 end
 result.Netflow = [((result[i,"Demand"] + result[i,"Supply"])) for i in 1:nrow(result)]
-CSV.write("output/result_flow_output_ch.csv", result)
+CSV.write("output/ch_model/result_flow_output_ch.csv", result)
