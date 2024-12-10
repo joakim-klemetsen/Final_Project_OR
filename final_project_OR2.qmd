@@ -1,0 +1,32 @@
+---
+title: "Final Project OR2"
+format: html
+execute: 
+  echo: false
+---
+
+```{julia}
+# load required packages
+using CSV, DataFrames, JuMP, HiGHS
+
+# load data
+data = CSV.read("data/ModifiedProjectData.csv", DataFrame)
+
+```
+
+# Task 1: Mathematical Formulation
+
+The first task is to formulate the welfare maximization problem mathematically. We will systematically present the sets, parameters, decision variables and objective function of the problem, and lastly give an in depth explanation of the constraints of the model.
+
+## Sets
+
+To solve the welfare maximization problem, we define five sets from the data. *I*, *J*, *K*, and *L* will be the sets containing the set of unique BidID's, periods, locations and ParentBidID's respectively.
+
+```{julia}
+# define sets
+bids = unique(data.BidID)
+parent_bids = unique(data.ParentBidID)
+locations = unique(data.Location)
+location_combinations = [(l, k) for l in locations, k in locations if l != k]
+periods = unique(data.Period)
+```
