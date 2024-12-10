@@ -80,6 +80,7 @@ end
 
 # solve model
 optimize!(m)
+objective_value(m)
 
 # Output optimal binary variables that
 y_fixed = DataFrame(BidID = data.BidID,
