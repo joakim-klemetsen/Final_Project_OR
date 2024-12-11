@@ -83,6 +83,7 @@ dual_y_fix = Dict(i => (-1)*dual(fix_y[i]) for i in bids)
 result_ip[!, "delta_star"] = [
     (result_ip[i, "y_solution"] == 0 ? 0 : dual_y_fix[result_ip[i, "BidID"]]) for i in 1:nrow(result_ip)
 ]
+result_ip.surplus = [((result_ip[i,"Price"]-result_ip[i,"pi_star"])*result_ip[i,"Quantity"]*result_ip[i,"x_solution"]) - (result_ip[i,"delta_star"]*result_ip[i,"y_solution"]) for i in 1:nrow(result_ip)]
 CSV.write("output/ip_model/ip_model_output.csv", result_ip)
 
 # output flows
