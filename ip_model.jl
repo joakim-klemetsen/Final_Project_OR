@@ -5,8 +5,7 @@
 # ------------------------------
 
 # load base model output
-Y = CSV.read("output/base_model/base_model_y_output.csv", DataFrame)
-Z = CSV.read("output/base_model/base_model_z_output.csv", DataFrame)
+base_output = CSV.read("output/base_model/base_model_extensive_output.csv", DataFrame)
 
 # initialize ip pricing model
 ip_model = Model(HiGHS.Optimizer)
@@ -56,13 +55,13 @@ end
 ### ensures that y is fixed to the optimal value of y in the base model
 fix_y = Dict()
 for i in bids
-    fix_y[i] = @constraint(ip_model, y[i] == Y[i,"Y"])    
+    fix_y[i] = @constraint(ip_model, y[i] == base_output[i,"y_solution"])    
 end
 
 ### ensures that z is fixed to the optimal value of z in the base model
 fix_z = Dict()
-for i in parent_bids
-    fix_z[i] = @constraint(ip_model, z[i] == Z[i,"Z"])    
+for j in parent_bids
+    fix_z[j] = @constraint(ip_model, z[j] == base_output[base_output.ParentBidID .== j,"z_solution"][1])    
 end
 
 # solve model
@@ -70,21 +69,21 @@ optimize!(ip_model)
 objective_value(ip_model)
 
 # output results
-test = copy(data)
-test.x_solution = [value(x[i]) for i in bids]
-test.y_solution = [value(y[i]) for i in bids]
-test.cleared_volume = [test[i,"Quantity"]*test[i,"x_solution"] for i in 1:nrow(test)]
+result_ip = copy(data)
+result_ip.x_solution = [value(x[i]) for i in bids]
+result_ip.y_solution = [value(y[i]) for i in bids]
+result_ip.cleared_volume = [result_ip[i,"Quantity"]*result_ip[i,"x_solution"] for i in 1:nrow(result_ip)]
 z_solution_map = Dict(j => value(z[j]) for j in parent_bids)
-test[!, "z_solution"] = [z_solution_map[test[i, "ParentBidID"]] for i in 1:nrow(test)]
+result_ip[!, "z_solution"] = [z_solution_map[result_ip[i, "ParentBidID"]] for i in 1:nrow(result_ip)]
 dual_market_balance = Dict((t, l) => (-1)*dual(market_balance_ip[t, l]) for t in periods for l in locations)
-test[!, "pi_star"] = [
-    dual_market_balance[(test[i, "Period"], test[i, "Location"])] for i in 1:nrow(test)
+result_ip[!, "pi_star"] = [
+    dual_market_balance[(result_ip[i, "Period"], result_ip[i, "Location"])] for i in 1:nrow(result_ip)
 ]
 dual_y_fix = Dict(i => (-1)*dual(fix_y[i]) for i in bids)
-test[!, "delta_star"] = [dual_y_fix[test[i, "BidID"]] for i in 1:nrow(test)]
+result_ip[!, "delta_star"] = [dual_y_fix[result_ip[i, "BidID"]] for i in 1:nrow(result_ip)]
 test.payment =[test[i,"pi_star"]*abs(test[i,"Quantity"])*test[i,"x_solution"]-test[i,"delta_star"]*test[i,"y_solution"] for i in 1:nrow(test)]
 test.surplus = [abs(test[i,"Price"]-test[i,"pi_star"])*abs(test[i,"Quantity"])*test[i,"x_solution"] for i in 1:nrow(test)]
-CSV.write("output/ip_model/ip_model_interim_output.csv", test)
+CSV.write("output/ip_model/ip_model_output.csv", test)
 
 # output flows
 result = DataFrame(Location = zeros(Int, length(periods)*length(locations)),

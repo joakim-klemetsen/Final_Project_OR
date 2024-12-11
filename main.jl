@@ -88,11 +88,6 @@ end
 optimize!(m)
 objective_value(m)
 
-# Output optimal binary variables
-CSV.write("output/base_model/base_model_output.csv", DataFrame(BidID = data.BidID,
-                                                    X = [value(x[i]) for i in bids],
-                                                    Y = [value(y[i]) for i in bids]))
-
 # output results
 results_base = copy(data)
 results_base.x_solution = [value(x[i]) for i in bids]
