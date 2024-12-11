@@ -74,32 +74,49 @@ function solve_model(predetermined=nothing, subject=nothing)
 end
 
 # Function that performs an iterative search
-function iterative_search(candidates, fixed_parents)
-    true_candidates = Int[]
-    false_candidates = Int[]
+function iterative_search(candidates)
+    it_count = 1
+    removed_candidates = Int[]
+    fixed_parents = DataFrame(ParentBidID = Int[], z_value = Float64[])
+
     while !isempty(candidates)
+        println("Outer loop iteration: ", it_count)
         search = DataFrame(ParentBidID = Int[], ObjectiveValue = Float64[])
+
         for i in candidates
-            dt, obj_val = solve_model(fixed_parents, i)  # assuming this function is defined elsewhere
+            println("Removing parent: ", i)
+            dt, obj_val = solve_model(fixed_parents, i) 
             push!(search, (ParentBidID = i, ObjectiveValue = obj_val))
         end
-        min_value, min_index = findmin(search[!, "ObjectiveValue"])
-        row_index = findfirst(fixed_parents.ParentBidID .== search.ParentBidID[min_index])  # Finding the row index
-        if !isnothing(row_index)
-            fixed_parents[row_index, "z_value"] = 1  # Correctly updating the DataFrame
+
+        if isempty(search)
+            println("No more candidates to evaluate.")
+            break
         end
-        # check if integral
-        check_df, check_obj = solve_model(fixed_parents)  # assuming this function is defined elsewhere
-        push!(true_candidates, search.ParentBidID[min_index])
+
+        max_value, max_pos = findmax(search.ObjectiveValue)
+        parent_to_remove = search.ParentBidID[max_pos]
+        push!(removed_candidates, parent_to_remove)
+
+        if !isnothing(parent_to_remove)
+            push!(fixed_parents, (ParentBidID = parent_to_remove, z_value = 0))
+            candidates = setdiff(candidates, [parent_to_remove])
+        end
+
+        check_df, check_obj = solve_model(fixed_parents)
         if any(x -> 0 < x < 1, check_df.z_value)
-            candidates = setdiff(candidates, search.ParentBidID[min_index])
+            println("No integral solution found by removing: ", removed_candidates)
+            println("Continuing search!")
+            it_count += 1
         else
-            push!(false_candidates, candidates)
+            println("Integral solution found on iteration: ", it_count)
             break
         end
     end
-    return true_candidates, false_candidates
-end    
+
+    return check_df
+end
+    
 
 ## ---
 # Define the basis for the iterative search
@@ -107,20 +124,21 @@ end
 
 # solve the model with pure continues relaxation; provides upper bound of solution
 df, relaxed_model = solve_model()
-any(x -> x <= 0 || x >= 1, df.ParentBidID)
+CSV.write("output/eu_model/pure_unrestricted.csv",df_test)
+
 # provide a data frame with the predetermined fixed values; parents with binary values from the pure relaxed model
 initial_fixed_parents = df[(df.z_value .== 0) .| (df.z_value .== 1),:]
-
+initial_fixed_parents[initial_fixed_parents.z_value .== 0,"ParentBidID"]
 # extract the fractionally accepted parents from the pure model
 initial_candidates = setdiff(parent_bids, df[(df.z_value .== 0) .| (df.z_value .== 1),"ParentBidID"])
-
+df_test, obj_test = solve_model(nothing, initial_candidates)
 ## ---
 # Perform interative search
 ## ---
-t_can, f_can = iterative_search(initial_candidates, initial_fixed_parents)
+z_values_search = iterative_search(initial_candidates)
 
 df1, relaxed_model1 = solve_model(df[(df.z_value .== 0) .| (df.z_value .== 1),:], initial_candidates)
 
-df1[92,"z_value"] = 1
+df1[144,"z_value"] = 
 
 df2, relaxed_model2 = solve_model(df[(df.z_value .== 0) .| (df.z_value .== 1),:])
