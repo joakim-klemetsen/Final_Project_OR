@@ -1,3 +1,9 @@
+# - Preliminary Information ----
+# This file contains a solver for the welfare maximization problem.
+# This file forms the basis for the remainng files, due to packages being loaded, sets and parameters defined and
+# output values.
+# ------------------------------
+
 # loading packages
 using CSV, DataFrames, JuMP, HiGHS
 
@@ -82,31 +88,19 @@ end
 optimize!(m)
 objective_value(m)
 
-# Output optimal binary variables that
-y_fixed = DataFrame(BidID = data.BidID,
-                    Y = [value(y[i]) for i in bids]
-)
-
-CSV.write("output/base_model/base_model_y_output.csv",y_fixed)
-
-z_fixed = DataFrame(ParentBidID = parent_bids,
-                    Z = [value(z[i]) for i in parent_bids]
-)
-
-CSV.write("output/base_model/base_model_z_output.csv",z_fixed)
-
+# Output optimal binary variables
 CSV.write("output/base_model/base_model_output.csv", DataFrame(BidID = data.BidID,
                                                     X = [value(x[i]) for i in bids],
                                                     Y = [value(y[i]) for i in bids]))
 
 # output results
-test = copy(data)
-test.x_solution = [value(x[i]) for i in bids]
-test.y_solution = [value(y[i]) for i in bids]
+results_base = copy(data)
+results_base.x_solution = [value(x[i]) for i in bids]
+results_base.y_solution = [value(y[i]) for i in bids]
 z_solution_map = Dict(j => value(z[j]) for j in parent_bids)
-test[!, "z_solution"] = [z_solution_map[test[i, "ParentBidID"]] for i in 1:nrow(test)]
-test.cleared_volume = [test[i,"Quantity"]*test[i,"x_solution"] for i in 1:nrow(test)]
-CSV.write("output/base_model/base_model_interim_output.csv",test)
+results_base[!, "z_solution"] = [z_solution_map[results_base[i, "ParentBidID"]] for i in 1:nrow(results_base)]
+results_base.cleared_volume = [results_base[i,"Quantity"]*results_base[i,"x_solution"] for i in 1:nrow(results_base)]
+CSV.write("output/base_model/base_model_extensive_output.csv",results_base)
 
 # output flows
 result = DataFrame(Location = zeros(Int, length(periods)*length(locations)),
