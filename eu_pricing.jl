@@ -128,17 +128,11 @@ CSV.write("output/eu_model/pure_unrestricted.csv",df_test)
 
 # provide a data frame with the predetermined fixed values; parents with binary values from the pure relaxed model
 initial_fixed_parents = df[(df.z_value .== 0) .| (df.z_value .== 1),:]
-initial_fixed_parents[initial_fixed_parents.z_value .== 0,"ParentBidID"]
+
 # extract the fractionally accepted parents from the pure model
 initial_candidates = setdiff(parent_bids, df[(df.z_value .== 0) .| (df.z_value .== 1),"ParentBidID"])
-df_test, obj_test = solve_model(nothing, initial_candidates)
+
 ## ---
 # Perform interative search
 ## ---
 z_values_search = iterative_search(initial_candidates)
-
-df1, relaxed_model1 = solve_model(df[(df.z_value .== 0) .| (df.z_value .== 1),:], initial_candidates)
-
-df1[144,"z_value"] = 
-
-df2, relaxed_model2 = solve_model(df[(df.z_value .== 0) .| (df.z_value .== 1),:])
