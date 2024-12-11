@@ -80,10 +80,10 @@ result_ip[!, "pi_star"] = [
     dual_market_balance[(result_ip[i, "Period"], result_ip[i, "Location"])] for i in 1:nrow(result_ip)
 ]
 dual_y_fix = Dict(i => (-1)*dual(fix_y[i]) for i in bids)
-result_ip[!, "delta_star"] = [dual_y_fix[result_ip[i, "BidID"]] for i in 1:nrow(result_ip)]
-test.payment =[test[i,"pi_star"]*abs(test[i,"Quantity"])*test[i,"x_solution"]-test[i,"delta_star"]*test[i,"y_solution"] for i in 1:nrow(test)]
-test.surplus = [abs(test[i,"Price"]-test[i,"pi_star"])*abs(test[i,"Quantity"])*test[i,"x_solution"] for i in 1:nrow(test)]
-CSV.write("output/ip_model/ip_model_output.csv", test)
+result_ip[!, "delta_star"] = [
+    (result_ip[i, "y_solution"] == 0 ? 0 : dual_y_fix[result_ip[i, "BidID"]]) for i in 1:nrow(result_ip)
+]
+CSV.write("output/ip_model/ip_model_output.csv", result_ip)
 
 # output flows
 result = DataFrame(Location = zeros(Int, length(periods)*length(locations)),
