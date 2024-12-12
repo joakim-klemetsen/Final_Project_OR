@@ -11,8 +11,8 @@ set_silent(ch_model)
 # variables
 @variable(ch_model, 0 <= x[i in bids] <= 1)          
 @variable(ch_model, 0 <= f[i in location_combinations, j in periods] <= cap)  
-@variable(ch_model, alpha[i in bids])      
-@variable(ch_model, beta[i in parent_bids])             
+@variable(ch_model, 0 <= alpha[i in bids] <= 1)      
+@variable(ch_model, 0 <= beta[i in parent_bids] <= 1)             
 
 # objective
 @objective(ch_model, Max, 
@@ -36,12 +36,66 @@ for t in periods
     end
 end
 
-## - 2. convex hull constraints ----
-ch_constraints = Dict() 
+# constraints
+
+## - 1. market balance constraints ----
+market_balance_ch = Dict()
+for t in periods
+    for l in locations
+        filtered_data = data[(data.Period .== t) .& (data.Location .== l), :]
+        b = filtered_data.BidID
+        market_balance_ch[t, l] = @constraint(ch_model,
+            sum(filtered_data[i, "Quantity"] * x[b[i]] for i in 1:nrow(filtered_data)) ==
+            sum(f[(k, l), t] for k in locations if (k, l) in location_combinations) - 
+            sum(f[(l, k), t] for k in locations if (l, k) in location_combinations)
+        )
+    end
+end
+
+## - 2. minimum acceptance ratio fulfillment ----
+
+### link between acceptance ratio and binary variable
+ar_link_cond = Dict()
+for i in bids 
+    ar_link_cond[i] = @constraint(ch_model, x[i] <= alpha[i])
+end
+
+### ensures that acceptance ratio atleast meets the min. acc. requirement
+ar_geq_cond = Dict()
 for i in bids
-    @constraint(ch_model, x[i] <= alpha[i])
-    ch_constraints[i] =@constraint(ch_model, (data[i,"AR"]+epsilon)*alpha[i] <= x[i])
-    @constraint(ch_model, alpha[i] <= beta[data[data.BidID .== i,"ParentBidID"][1]])
+    ar_geq_cond[i] = @constraint(ch_model, x[i] >= (data[i,"AR"]+epsilon)*alpha[i])    
+end
+
+## - 3. fixed cost link ----
+
+### upper bound: becomes active when \sum(y_i) > 0 and forces z_l = 1
+fc_upper = Dict()
+for l in parent_bids
+    filtered_data = data[(data.ParentBidID .== l),:]
+    b = filtered_data.BidID
+    fc_upper[l] = @constraint(ch_model, sum(alpha[b[i]] for i in 1:nrow(filtered_data)) <= M[l]*beta[l])
+end
+
+### lower bound: becomes active when \sum(y_i) = 0 and forces z_l = 0
+fc_lower = Dict()
+for l in parent_bids
+    filtered_data = data[(data.ParentBidID .== l),:]
+    b = filtered_data.BidID
+    fc_lower[l] = @constraint(ch_model, sum(alpha[b[i]] for i in 1:nrow(filtered_data)) >= beta[l])
+end
+
+## - 3. fix binary variables ----
+
+### ensures that y is fixed to the optimal value of y in the base model
+fix_y = Dict()
+for i in bids
+    fix_y[i] = @constraint(ch_model, alpha[i] == base_output[i,"y_solution"])    
+end
+
+### ensures that z is fixed to the optimal value of z in the base model
+fix_z = Dict()
+for j in parent_bids
+    fix_z[j] = @constraint(ch_model, beta[j] == base_output[base_output.ParentBidID .== j,"z_solution"][1])    
 end
 
 # solve model
@@ -59,26 +113,52 @@ dual_market_balance = Dict((t, l) => (-1) * dual(market_balance_ch[t, l]) for t 
 result_ch[!, "pi_star"] = [
     dual_market_balance[(result_ch[i, "Period"], result_ch[i, "Location"])] for i in 1:nrow(result_ch)
 ]
-dual_y_fix = Dict(i => (-1) * dual(ch_constraints[i]) for i in bids)
-result_ch[!, "delta_star"] = [
-    (result_ch[i, "y_solution"] == 0 ? 0 : dual_y_fix[result_ch[i, "BidID"]]) for i in 1:nrow(result_ch)
-]
 
 # Initialize surplus columns
 result_ch[!, "consumer_surplus"] = zeros(nrow(result_ch))
-result_ip[!, "producer_surplus"] = zeros(nrow(result_ip))
+result_ch[!, "producer_surplus"] = zeros(nrow(result_ch))
 
 # Calculate consumer and producer surplus
 for i in 1:nrow(result_ch)
     if result_ch[i, "cleared_volume"] >= 0
-        result_ch[i, "consumer_surplus"] = ((result_ch[i, "Price"] - result_ch[i, "pi_star"]) * result_ch[i, "Quantity"] * result_ch[i, "x_solution"]) - (result_ch[i, "delta_star"] * result_ch[i, "y_solution"])
+        result_ch[i, "consumer_surplus"] = ((result_ch[i, "Price"] - result_ch[i, "pi_star"]) * result_ch[i, "Quantity"] * result_ch[i, "x_solution"])
     else
-        result_ch[i, "producer_surplus"] = ((result_ch[i, "Price"] - result_ch[i, "pi_star"]) * result_ch[i, "Quantity"] * result_ch[i, "x_solution"]) - (result_ch[i, "delta_star"] * result_ch[i, "y_solution"])
+        result_ch[i, "producer_surplus"] = ((result_ch[i, "Price"] - result_ch[i, "pi_star"]) * result_ch[i, "Quantity"] * result_ch[i, "x_solution"])
     end
 end
 
-# Write to CSV
+# Initialize columns for opportunity costs and actual losses
+result_ch[!, "consumer_opportunity_cost"] = zeros(nrow(result_ch))
+result_ch[!, "producer_opportunity_cost"] = zeros(nrow(result_ch))
+result_ch[!, "consumer_actual_loss"] = zeros(nrow(result_ch))
+result_ch[!, "producer_actual_loss"] = zeros(nrow(result_ch))
+
+# Calculate opportunity costs and actual losses
+for i in 1:nrow(result_ch)
+    # Consumer opportunity cost
+    if result_ch[i, "Quantity"] >= 0 && result_ch[i, "x_solution"] == 0 && (result_ch[i, "Price"] - result_ch[i, "pi_star"]) > 0
+        result_ch[i, "consumer_opportunity_cost"] = (result_ch[i, "Price"] - result_ch[i, "pi_star"]) * (result_ch[i, "Quantity"] * (result_ch[i, "x_solution"] - 1))
+    end
+    
+    # Producer opportunity cost
+    if result_ch[i, "Quantity"] < 0 && result_ch[i, "x_solution"] == 0 && (result_ch[i, "Price"] - result_ch[i, "pi_star"]) < 0
+        result_ch[i, "producer_opportunity_cost"] = (result_ch[i, "Price"] - result_ch[i, "pi_star"]) * (result_ch[i, "Quantity"] * (result_ch[i, "x_solution"] - 1))
+    end
+    
+    # Consumer actual loss
+    if result_ch[i, "Quantity"] >= 0 && result_ch[i, "x_solution"] > 0 && (result_ch[i, "pi_star"] - result_ch[i, "Price"]) > 0
+        result_ch[i, "consumer_actual_loss"] = (result_ch[i, "pi_star"] - result_ch[i, "Price"]) * result_ch[i, "Quantity"] * result_ch[i, "x_solution"]
+    end
+    
+    # Producer actual loss
+    if result_ch[i, "Quantity"] < 0 && result_ch[i, "x_solution"] > 0 && (result_ch[i, "pi_star"] - result_ch[i, "Price"]) < 0
+        result_ch[i, "producer_actual_loss"] = (result_ch[i, "pi_star"] - result_ch[i, "Price"]) * result_ch[i, "Quantity"] * result_ch[i, "x_solution"]
+    end
+end
+
+# Save results to CSV
 CSV.write("output/ch_model/ch_model_output.csv", result_ch)
+
 
 # output flows
 result = DataFrame(Location = zeros(Int, length(periods)*length(locations)),
@@ -98,7 +178,7 @@ for (loc, period) in [(l, p) for l in locations, p in periods]
     filtered_data = data[(data.Location .== loc) .& (data.Period .== period), :]
     result[index, :Location] = loc
     result[index, :Period] = period
-    result[index, :Price] = (-1) * dual(market_balance_ip[period, loc])
+    result[index, :Price] = (-1) * dual(market_balance_ch[period, loc])
     
     positive_quantity_bids = filtered_data[filtered_data.Quantity .>= 0, :]
     result[index, :Demand] = sum([positive_quantity_bids[i, "Quantity"] * value(x[positive_quantity_bids[i, "BidID"]]) for i in 1:nrow(positive_quantity_bids)])
@@ -111,7 +191,7 @@ for (loc, period) in [(l, p) for l in locations, p in periods]
     for to_loc in 1:4  
         if loc != to_loc
             flow_volume = value(f[(loc, to_loc), period])
-            price_difference = result[index, :Price] - (-1) * dual(market_balance_ip[period, to_loc])
+            price_difference = result[index, :Price] - (-1) * dual(market_balance_ch[period, to_loc])
             result[index, Symbol("f_to_$(to_loc)")] = flow_volume
             transfer_surplus += abs(price_difference) * flow_volume
         else
@@ -122,18 +202,20 @@ for (loc, period) in [(l, p) for l in locations, p in periods]
     index += 1
 end
 result.Netflow = [((result[i,"Demand"] + result[i,"Supply"])) for i in 1:nrow(result)]
-CSV.write("output/ip_model/result_flow_output_ip.csv", result)
+CSV.write("output/ch_model/result_flow_output_ch.csv", result)
 
 # auxiliary computations
 ## compute fixed cost
-fixed_cost_df = unique(select(result_ip, :ParentBidID, :z_solution, :FC), :ParentBidID)
-total_fixed_cost = sum(filter(row -> row.z_solution == 1, fixed_cost_df).FC)
+fixed_cost_df = unique(select(result_ch, :ParentBidID, :z_solution, :FC), :ParentBidID)
+total_fixed_cost = sum(filter(row -> row.z_solution > 0, fixed_cost_df).FC)
 
 # output ip model aggregated results
-report_results = DataFrame(consumer_surplus = sum(result_ip.consumer_surplus),
-                           producer_surplus = sum(sum(result_ip.producer_surplus)),
+report_results = DataFrame(consumer_surplus = sum(result_ch.consumer_surplus),
+                           producer_surplus = sum(sum(result_ch.producer_surplus)),
                            transfer_surplus = sum(result.transfer_surplus),
                            fixed_cost = total_fixed_cost,
-                           compensation = (-1)*sum(result_ip.delta_star)                                                                                
+                           compensation = sum(result_ch.consumer_actual_loss) + sum(result_ch.producer_actual_loss)                                                                               
 )
-CSV.write("output/ip_model/report_ip_aggregated_results.csv",report_results)
+CSV.write("output/ch_model/report_ch_aggregated_results.csv",report_results)
+
+sum(result_ch.consumer_actual_loss) + sum(result_ch.producer_actual_loss)
