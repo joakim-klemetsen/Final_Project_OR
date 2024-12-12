@@ -40,8 +40,8 @@ end
 ch_constraints = Dict() 
 for i in bids
     @constraint(ch_model, x[i] <= alpha[i])
-    @constraint(ch_model, (data[i,"AR"]+epsilon)*alpha[i] <= x[i])
-    ch_constraints[i] = @constraint(ch_model, alpha[i] <= beta[data[data.BidID .== i,"ParentBidID"][1]])
+    ch_constraints[i] =@constraint(ch_model, (data[i,"AR"]+epsilon)*alpha[i] <= x[i])
+    @constraint(ch_model, alpha[i] <= beta[data[data.BidID .== i,"ParentBidID"][1]])
 end
 
 # solve model
@@ -49,21 +49,36 @@ optimize!(ch_model)
 objective_value(ch_model)
 
 # output results
-test = copy(data)
-test.x_solution = [value(x[i]) for i in bids]
-test.y_solution = [value(alpha[i]) for i in bids]
-test.cleared_volume = [test[i,"Quantity"]*test[i,"x_solution"] for i in 1:nrow(test)]
+result_ch = copy(data)
+result_ch.x_solution = [value(x[i]) for i in bids]
+result_ch.y_solution = [value(alpha[i]) for i in bids]
+result_ch.cleared_volume = [result_ch[i, "Quantity"] * result_ch[i, "x_solution"] for i in 1:nrow(result_ch)]
 z_solution_map = Dict(j => value(beta[j]) for j in parent_bids)
-test[!, "z_solution"] = [z_solution_map[test[i, "ParentBidID"]] for i in 1:nrow(test)]
-#dual_market_balance = Dict((t, l) => (-1)*dual(market_balance_ch[t, l]) for t in periods for l in locations)
-#test[!, "pi_star"] = [
-#    dual_market_balance[(test[i, "Period"], test[i, "Location"])] for i in 1:nrow(test)
-#]
-dual_y_fix = Dict(i => (-1)*dual(ch_constraints[i]) for i in bids)
-test[!, "delta_star"] = [dual_y_fix[test[i, "BidID"]] for i in 1:nrow(test)]
-#test.payment =[test[i,"pi_star"]*abs(test[i,"Quantity"])*test[i,"x_solution"]-test[i,"delta_star"]*test[i,"y_solution"] for i in 1:nrow(test)]
-#test.surplus = [abs(test[i,"Price"]-test[i,"pi_star"])*abs(test[i,"Quantity"])*test[i,"x_solution"] for i in 1:nrow(test)]
-CSV.write("output/ch_model/ch_model_interim_output.csv", test)
+result_ch[!, "z_solution"] = [z_solution_map[result_ch[i, "ParentBidID"]] for i in 1:nrow(result_ch)]
+dual_market_balance = Dict((t, l) => (-1) * dual(market_balance_ch[t, l]) for t in periods for l in locations)
+result_ch[!, "pi_star"] = [
+    dual_market_balance[(result_ch[i, "Period"], result_ch[i, "Location"])] for i in 1:nrow(result_ch)
+]
+dual_y_fix = Dict(i => (-1) * dual(ch_constraints[i]) for i in bids)
+result_ch[!, "delta_star"] = [
+    (result_ch[i, "y_solution"] == 0 ? 0 : dual_y_fix[result_ch[i, "BidID"]]) for i in 1:nrow(result_ch)
+]
+
+# Initialize surplus columns
+result_ch[!, "consumer_surplus"] = zeros(nrow(result_ch))
+result_ip[!, "producer_surplus"] = zeros(nrow(result_ip))
+
+# Calculate consumer and producer surplus
+for i in 1:nrow(result_ch)
+    if result_ch[i, "cleared_volume"] >= 0
+        result_ch[i, "consumer_surplus"] = ((result_ch[i, "Price"] - result_ch[i, "pi_star"]) * result_ch[i, "Quantity"] * result_ch[i, "x_solution"]) - (result_ch[i, "delta_star"] * result_ch[i, "y_solution"])
+    else
+        result_ch[i, "producer_surplus"] = ((result_ch[i, "Price"] - result_ch[i, "pi_star"]) * result_ch[i, "Quantity"] * result_ch[i, "x_solution"]) - (result_ch[i, "delta_star"] * result_ch[i, "y_solution"])
+    end
+end
+
+# Write to CSV
+CSV.write("output/ch_model/ch_model_output.csv", result_ch)
 
 # output flows
 result = DataFrame(Location = zeros(Int, length(periods)*length(locations)),
@@ -76,45 +91,49 @@ result = DataFrame(Location = zeros(Int, length(periods)*length(locations)),
                    f_to_2 = zeros(Float64, length(periods)*length(locations)),
                    f_to_3 = zeros(Float64, length(periods)*length(locations)),
                    f_to_4 = zeros(Float64, length(periods)*length(locations)),
+                   transfer_surplus = zeros(Float64, length(periods)*length(locations))
 )
-
 index = 1
 for (loc, period) in [(l, p) for l in locations, p in periods]
-    # Filter data for the current location and period
     filtered_data = data[(data.Location .== loc) .& (data.Period .== period), :]
-    
-    # Fill in the result DataFrame
     result[index, :Location] = loc
     result[index, :Period] = period
-    result[index, :Price] = (-1) * dual(market_balance_ch[period, loc])
+    result[index, :Price] = (-1) * dual(market_balance_ip[period, loc])
     
-    # Calculate Demand
     positive_quantity_bids = filtered_data[filtered_data.Quantity .>= 0, :]
-    result[index, :Demand] = sum(
-        [positive_quantity_bids[i, "Quantity"] * value(x[positive_quantity_bids[i, "BidID"]]) 
-         for i in 1:nrow(positive_quantity_bids)]
-    )
+    result[index, :Demand] = sum([positive_quantity_bids[i, "Quantity"] * value(x[positive_quantity_bids[i, "BidID"]]) for i in 1:nrow(positive_quantity_bids)])
     
-    # Calculate Supply
     negative_quantity_bids = filtered_data[filtered_data.Quantity .< 0, :]
-    result[index, :Supply] = sum(
-        [negative_quantity_bids[i, "Quantity"] * value(x[negative_quantity_bids[i, "BidID"]]) 
-         for i in 1:nrow(negative_quantity_bids)]
-    ) 
-
-    # Fill in flows
-        # Fill in the flow columns
-        for to_loc in 1:4  # Assuming 4 locations numbered 1 to 4
-            if loc != to_loc
-                # Flow is defined
-                result[index, Symbol("f_to_$(to_loc)")] = value(f[(loc, to_loc), period])
-            else
-                # Flow is undefined (same location)
-                result[index, Symbol("f_to_$(to_loc)")] = 0
-            end
+    result[index, :Supply] = sum([negative_quantity_bids[i, "Quantity"] * value(x[negative_quantity_bids[i, "BidID"]]) for i in 1:nrow(negative_quantity_bids)])
+    
+    # compute transfer surplus
+    transfer_surplus = 0  
+    for to_loc in 1:4  
+        if loc != to_loc
+            flow_volume = value(f[(loc, to_loc), period])
+            price_difference = result[index, :Price] - (-1) * dual(market_balance_ip[period, to_loc])
+            result[index, Symbol("f_to_$(to_loc)")] = flow_volume
+            transfer_surplus += abs(price_difference) * flow_volume
+        else
+            result[index, Symbol("f_to_$(to_loc)")] = 0
         end
-        
-        index += 1    
+    end
+    result[index, :transfer_surplus] = transfer_surplus
+    index += 1
 end
 result.Netflow = [((result[i,"Demand"] + result[i,"Supply"])) for i in 1:nrow(result)]
-CSV.write("output/ch_model/result_flow_output_ch.csv", result)
+CSV.write("output/ip_model/result_flow_output_ip.csv", result)
+
+# auxiliary computations
+## compute fixed cost
+fixed_cost_df = unique(select(result_ip, :ParentBidID, :z_solution, :FC), :ParentBidID)
+total_fixed_cost = sum(filter(row -> row.z_solution == 1, fixed_cost_df).FC)
+
+# output ip model aggregated results
+report_results = DataFrame(consumer_surplus = sum(result_ip.consumer_surplus),
+                           producer_surplus = sum(sum(result_ip.producer_surplus)),
+                           transfer_surplus = sum(result.transfer_surplus),
+                           fixed_cost = total_fixed_cost,
+                           compensation = (-1)*sum(result_ip.delta_star)                                                                                
+)
+CSV.write("output/ip_model/report_ip_aggregated_results.csv",report_results)
