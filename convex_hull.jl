@@ -36,67 +36,16 @@ for t in periods
     end
 end
 
-# constraints
-
-## - 1. market balance constraints ----
-market_balance_ch = Dict()
-for t in periods
-    for l in locations
-        filtered_data = data[(data.Period .== t) .& (data.Location .== l), :]
-        b = filtered_data.BidID
-        market_balance_ch[t, l] = @constraint(ch_model,
-            sum(filtered_data[i, "Quantity"] * x[b[i]] for i in 1:nrow(filtered_data)) ==
-            sum(f[(k, l), t] for k in locations if (k, l) in location_combinations) - 
-            sum(f[(l, k), t] for k in locations if (l, k) in location_combinations)
-        )
-    end
-end
-
-## - 2. minimum acceptance ratio fulfillment ----
-
-### link between acceptance ratio and binary variable
-ar_link_cond = Dict()
-for i in bids 
-    ar_link_cond[i] = @constraint(ch_model, x[i] <= alpha[i])
-end
-
-### ensures that acceptance ratio atleast meets the min. acc. requirement
-ar_geq_cond = Dict()
+## - 2. convex hull constraints ---- 
 for i in bids
-    ar_geq_cond[i] = @constraint(ch_model, x[i] >= (data[i,"AR"]+epsilon)*alpha[i])    
+    @constraint(ch_model, x[i] <= alpha[i])
+    @constraint(ch_model, (data[i,"AR"]+epsilon)*alpha[i] <= x[i])
+    @constraint(ch_model, alpha[i] <= beta[data[data.BidID .== i,"ParentBidID"][1]])
 end
 
-## - 3. fixed cost link ----
-
-### upper bound: becomes active when \sum(y_i) > 0 and forces z_l = 1
-fc_upper = Dict()
-for l in parent_bids
-    filtered_data = data[(data.ParentBidID .== l),:]
-    b = filtered_data.BidID
-    fc_upper[l] = @constraint(ch_model, sum(alpha[b[i]] for i in 1:nrow(filtered_data)) <= M[l]*beta[l])
-end
-
-### lower bound: becomes active when \sum(y_i) = 0 and forces z_l = 0
-fc_lower = Dict()
-for l in parent_bids
-    filtered_data = data[(data.ParentBidID .== l),:]
-    b = filtered_data.BidID
-    fc_lower[l] = @constraint(ch_model, sum(alpha[b[i]] for i in 1:nrow(filtered_data)) >= beta[l])
-end
-
-## - 3. fix binary variables ----
-
-### ensures that y is fixed to the optimal value of y in the base model
-fix_y = Dict()
-for i in bids
-    fix_y[i] = @constraint(ch_model, alpha[i] == base_output[i,"y_solution"])    
-end
-
-### ensures that z is fixed to the optimal value of z in the base model
-fix_z = Dict()
-for j in parent_bids
-    fix_z[j] = @constraint(ch_model, beta[j] == base_output[base_output.ParentBidID .== j,"z_solution"][1])    
-end
+# solve model
+optimize!(ch_model)
+objective_value(ch_model)
 
 # solve model
 optimize!(ch_model)
@@ -217,5 +166,3 @@ report_results = DataFrame(consumer_surplus = sum(result_ch.consumer_surplus),
                            compensation = sum(result_ch.consumer_actual_loss) + sum(result_ch.producer_actual_loss)                                                                               
 )
 CSV.write("output/ch_model/report_ch_aggregated_results.csv",report_results)
-
-sum(result_ch.consumer_actual_loss) + sum(result_ch.producer_actual_loss)
